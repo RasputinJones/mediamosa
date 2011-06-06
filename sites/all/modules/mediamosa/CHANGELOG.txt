@@ -10,6 +10,9 @@ Known issues;
   * Tool parameter is unique.
   * Allowed value is a ";" separated string.
   * Default value is exists in the allowed values.
+- Some installations will fail the 'Asset supplement - add tests'. For unknown
+  reason(s), the web server is not receiving the supplement data. Behaviour 
+  observed on nginx/0.7.67, while on nginx/0.7.65 the test ran without problems.
 
 OpenAPI development:
 - Alternative output formats (JSON, Atom, RSS)
@@ -26,7 +29,15 @@ TODO: (v3.0)
   AliasMatch ^/still/(.*)(.asx|.smil)$ /[sannas path]/still_links/$1$2
 </IfModule>
 
-MediaMosa 3.0.1 (build 1718)
+- Add metadata module enable on migration 1.7->3.x scripts.
+
+
+MediaMosa 3.0.2 (build 1724)
+----------------------------
+Other changes (not ticket related).
+- Upgraded Drupal 7.0 to Drupal 7.2 release.
+
+MediaMosa 3.0.1 (build 1722)
 ----------------------------
 - Transcoding from mp3 to mp4 generates an error (See vpcore ticket #241)
 - Job priority development (See vpcore ticket #242).
@@ -58,6 +69,18 @@ Other changes (not ticket related).
 - Fixed problem in statistics where to many keywords generated a PDO exception.
 - Internal searches using CQL will no longer store statistics about searches.
   Only searches from user input will be stored.
+- Fixed: Using .ogg testfile instead of .wmv for download test. It fails when
+  using the .wmv version because lack of memory with 128mb PHP setting.
+- Made mediamosa_app depended on mediamosa module.
+- Made mediamosa_acl depended on mediamosa_metadata_dc and _qdc modules.
+- Added message about running background test (if any), size of test queue on 
+  the automated simpletest testing page (developers only).
+- Fixed problem with download test where PHP memory ran out.
+- Fixed download problem when file contains spaces.
+- Added dump of error_log in our unit tests when present.
+- The PHP error_log will now be correctly set during simpletest and we are
+  inside a PHP unit test. Previously lost any error_log() entries inside REST
+  calls.
 
 MediaMosa 3.0 (build 1698)
 --------------------------
@@ -468,10 +491,6 @@ MediaMosa 2.3.0 Build (1032)
 - First phase for better workflow on toolset definition (See ticket #265).
 - Fixed numofvideos in REST call /collection search to show correct number of 
   videos in master-slaved collection. (See ticket #206).
-- Fixed numofvideos in REST call /collection/coll_id to show correct number of 
-  videos in master-slaved collection. (See ticket #206).
-- Fixed numofvideos in REST call /collection/coll_id/asset/count to return 
-  correct number of videos in master-slaved collection. (See ticket #206).
 - Permanent Still URLs when asset is not protected (See ticket #291).
 
 Other changes (not ticket related).

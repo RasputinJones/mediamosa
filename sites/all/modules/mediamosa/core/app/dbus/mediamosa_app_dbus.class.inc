@@ -99,7 +99,7 @@ class mediamosa_app_dbus {
    * @param string $param
    * @return boolean / string
    */
-  function dbus_cookie_sha1($command, $param) {
+  static public function dbus_cookie_sha1($command, $param) {
 
     switch ($command) {
       case 'AUTH':
@@ -160,6 +160,9 @@ class mediamosa_app_dbus {
         }
 
         list($mechanism, $init) = explode(' ', $param, 2);
+
+        // watchdog('user', 'mechanism=%mechanism and parm=%param and auth_methods=%auth_methods', array('%mechanism' => $mechanism, '%param' => $param, '%auth_methods' => $auth_methods[$mechanism]));
+
         if (!isset($auth_methods[$mechanism])) {
           return 'ERROR unknown mechanism';
         }
@@ -168,6 +171,7 @@ class mediamosa_app_dbus {
         assert(method_exists('mediamosa_app_dbus', $auth_methods[$mechanism]));
 
         $_SESSION['mediamosa_dbus']['mechanism'] = $auth_methods[$mechanism];
+
         $_SESSION['mediamosa_dbus']['username'] = FALSE;
         $_SESSION['mediamosa_dbus']['challenge'] = FALSE;
         $param = $init;
@@ -180,18 +184,23 @@ class mediamosa_app_dbus {
 
         // Check if chosen mechanism is available.
         if ($_SESSION['mediamosa_dbus']['mechanism'] == FALSE) {
-          return 'ERROR mechanism not specified';
+            watchdog('user', 'returning error');
+            return 'ERROR mechanism not specified';
         }
+
+        watchdog('user', 'continuing on');
 
         // Call the chosen method.
         $result = call_user_func_array(
-          array('mediamosa_app_dbus', $_SESSION['mediamosa_dbus']['mechanism']),
+          array('mediamosa_app_dbus' , $_SESSION['mediamosa_dbus']['mechanism']),
           array($command, $param)
         );
 
         if (!is_bool($result)) {
           return $result;
         }
+
+        watchdog('user', 'continuing on..');
 
         if (!$result) {
           $_SESSION['mediamosa_dbus']['mechanism'] = FALSE;

@@ -1688,6 +1688,8 @@ class mediamosa_acl {
         // Now execute the SQL.
         $db_result = mediamosa_db::db_query($query_sql);
 
+        mediamosa_watchdog::log_query_string($db_result);
+
         if ($db_result->fetchAssoc() === FALSE) {
           // FIXME: will always be thrown, even when unappropriate was the reason.
           throw new mediamosa_exception_error_access_denied(array('@reason' => 'mediafile is protected'));

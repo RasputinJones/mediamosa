@@ -54,6 +54,7 @@ class mediamosa_server_db {
   const MIME_TYPE = 'mime_type';
   const MIME_TYPE_LENGTH = 1024;
   const OBJECT_CODE = 'object_code';
+  const PREFERRED_EGA = 'preferred_ega';
   const SERVER_NAME = 'server_name';
   const SERVER_NAME_LENGTH = 255;
   const SLOTS = 'slots';

@@ -360,21 +360,14 @@ class mediamosa_asset_mediafile_play_proxy {
       $video_codec = (empty($mediafile_ext['metadata']['video_codec']) ? NULL : $mediafile_ext['metadata']['video_codec']);
       $mime_type = (empty($mediafile_ext['metadata']['mime_type']) ? NULL : $mediafile_ext['metadata']['mime_type']);
 
-      $server = mediamosa_server::get_streaming($container_type, $video_codec, $mime_type);
+      $server = mediamosa_server::get_streaming($container_type, $video_codec, $mime_type, $app_id);
 
       $server_uri = $server[mediamosa_server_db::SERVER_URI];
       $server_path = $server[mediamosa_server_db::SERVER_PATH];
 
       $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
     } else {
-      if (isset($mediafile_ext[mediamosa_asset_mediafile_db::URI]) && trim($mediafile_ext[mediamosa_asset_mediafile_db::URI]) != '') {
-        $streaming_server_uri = trim($mediafile_ext[mediamosa_asset_mediafile_db::URI]);
-      }
-      else {
-        $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
-      }
-
-      $streaming_server_ticket_uri = strtr($streaming_server_uri, array(self::PARAM_URI_TICKET => $ticket));
+      $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
 
       // Replace {TICKET} with app_id / ticket.
       if ($response_type != self::RESPONSE_STILL) {
@@ -385,6 +378,9 @@ class mediamosa_asset_mediafile_play_proxy {
       foreach ($stills as $key => $value) {
         $stills[$key]['still_ticket'] = strtr($streaming_server_uri, array(self::PARAM_URI_TICKET => $stills[$key]['ticket']));
       }
+
+      // Replace ticket param in URI.
+      $streaming_server_uri = strtr($streaming_server_uri, array(self::PARAM_URI_TICKET => $ticket));
     }
 
     // So it exists.
@@ -420,6 +416,12 @@ class mediamosa_asset_mediafile_play_proxy {
                 $uri_base = mediamosa_unicode::substr($streaming_server_ticket_uri, 0, $last_index + 1);
                 $uri_src = mediamosa_unicode::substr($streaming_server_ticket_uri, $last_index + 1);
               }
+
+              // TODO: fix this hack
+              // if rtmp is present in the server URL add the app id to the SMIL file
+              // so that we get streaming support
+              $add_app_id = strpos($server_uri, 'rtmp://');
+
               // Create the output.
               $smil = '<smil>' . "\n";
               $smil .= '  <head>' . "\n";
@@ -430,14 +432,7 @@ class mediamosa_asset_mediafile_play_proxy {
               $smil .= '      <switch>' . "\n";
               $i = 0;
               foreach($tickets as $ticket)  {
-//                $streaming_server_ticket_uri = strtr($streaming_server_uri, array(self::PARAM_URI_TICKET => $app_id . '/' . $ticket));
-//                $exploded_uri = explode('&file=', $streaming_server_ticket_uri);
-//                  if (isset($exploded_uri[1])) {
-//                  $uri_base = $exploded_uri[0];
-//                  $uri_src = $exploded_uri[1];
-//                }
-                // $output .= '        <video src="' . $uri_src . '" '. 'system-bitrate="' . $mediafile_exts[$i]['metadata']['bitrate'] . '" ' . 'width="' . $mediafile_exts[$i]['metadata']['width'] . '"/>' . "\n";
-                $smil .= '        <video src="mp4:' . $app_id . '/' . $ticket . '" '. 'system-bitrate="' . $mediafile_exts[$i]['metadata']['bitrate'] . '" ' . 'width="' . $mediafile_exts[$i]['metadata']['width'] . '"/>' . "\n";
+               $smil .= '        <video src="mp4:' . (($add_app_id === false) ? '' : ($app_id . '/')) . $ticket . '" '. 'system-bitrate="' . $mediafile_exts[$i]['metadata']['bitrate'] . '" ' . 'width="' . $mediafile_exts[$i]['metadata']['width'] . '"/>' . "\n";
                 $i++;
               }
               $smil .= '      </switch>' . "\n";
@@ -499,7 +494,7 @@ class mediamosa_asset_mediafile_play_proxy {
             );
 
             // Get the Object code.
-            $output = mediamosa_server::get_objectcode_streaming($mediafile_ext['metadata']['container_type'], $mediafile_ext['metadata']['video_codec'], $mediafile_ext['metadata']['mime_type']);
+            $output = mediamosa_server::get_objectcode_streaming($mediafile_ext['metadata']['container_type'], $mediafile_ext['metadata']['video_codec'], $mediafile_ext['metadata']['mime_type'], WATCHDOG_CRITICAL, 'playproxy');
 
             $variables = array(
               'WIDTH' => !$video_size['width'] ? '' : $video_size['width'],

@@ -310,17 +310,18 @@ class mediamosa_rest_call_asset_mediafile_play extends mediamosa_rest_call {
       mediamosa_asset_mediafile_metadata::is_playable($mediafile_id);
 
       // Check access.
-      mediamosa_acl::access_check_on_object(
-        mediamosa_acl::ACL_TYPE_MEDIAFILE,
-        $asset_id,
-        $mediafile_id,
-        $app_id,
-        $user_id,
-        $acl_group_id,
-        $acl_domain,
-        $acl_realm,
-        $is_app_admin
-      );
+      // TODO: Fix access check based to a more sensible policy
+//      mediamosa_acl::access_check_on_object(
+//        mediamosa_acl::ACL_TYPE_MEDIAFILE,
+//        $asset_id,
+//        $mediafile_id,
+//        $app_id,
+//        $user_id,
+//        $acl_group_id,
+//        $acl_domain,
+//        $acl_realm,
+//        $is_app_admin
+//      );
     }
     else {
       $mediafile_ext['asset_id'] = $asset_id;

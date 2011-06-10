@@ -478,6 +478,14 @@ function mediamosa_server_form($node, &$form_state) {
       '#description' => t('{WIDTH}, {HEIGHT}, {HEIGHT_PLUS_number}, {MEDIAFILE_ID}, {TICKET_URI}, {STILL_URI}, {AUTOPLAY} (true or false), {AUTOPLAY_NUM} (1 or 0), {AUTOPLAY_TEXT} (autostart), {IF_START}, {/IF_START}, {IF_EXTERNAL}, {/IF_EXTERNAL}, {IF_DURATION}, {/IF_DURATION}, {SERVER_URI}, {SERVER_PATH} are available for use in this field.'),
       '#default_value' => mediamosa_node::default_value(mediamosa_server_db::OBJECT_CODE, $node),
     );
+
+    $form['mediamosa_server'][mediamosa_server_db::PREFERRED_EGA] = array(
+      '#type' => 'select',
+      '#options' => mediamosa_app::get_all_apps(array(mediamosa_app_db::APP_ID, mediamosa_app_db::APP_NAME), mediamosa_app_db::APP_NAME)->fetchAllKeyed(0, 1),
+      '#title' => t('Preferred EGA'),
+      '#default_value' => mediamosa_node::default_value(mediamosa_server_db::PREFERRED_EGA, $node),
+      '#required' => FALSE
+    );
   }
 
   $form['mediamosa_server'][mediamosa_server_db::SERVER_STATUS] = array(

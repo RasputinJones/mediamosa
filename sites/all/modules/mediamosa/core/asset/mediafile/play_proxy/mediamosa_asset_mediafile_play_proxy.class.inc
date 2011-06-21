@@ -356,16 +356,18 @@ class mediamosa_asset_mediafile_play_proxy {
       $mediafile_exts = $mediafile_ext;
       $mediafile_ext = reset($mediafile_exts);
 
-      $container_type = (empty($mediafile_ext['metadata']['container_type']) ? NULL : $mediafile_ext['metadata']['container_type']);
-      $video_codec = (empty($mediafile_ext['metadata']['video_codec']) ? NULL : $mediafile_ext['metadata']['video_codec']);
-      $mime_type = (empty($mediafile_ext['metadata']['mime_type']) ? NULL : $mediafile_ext['metadata']['mime_type']);
+      if ($mediafile_ext) { // mediafile_ext will be true if there's a transcoded file
+        $container_type = (empty($mediafile_ext['metadata']['container_type']) ? NULL : $mediafile_ext['metadata']['container_type']);
+        $video_codec = (empty($mediafile_ext['metadata']['video_codec']) ? NULL : $mediafile_ext['metadata']['video_codec']);
+        $mime_type = (empty($mediafile_ext['metadata']['mime_type']) ? NULL : $mediafile_ext['metadata']['mime_type']);
 
-      $server = mediamosa_server::get_streaming($container_type, $video_codec, $mime_type, $app_id);
+        $server = mediamosa_server::get_streaming($container_type, $video_codec, $mime_type, $app_id);
 
-      $server_uri = $server[mediamosa_server_db::SERVER_URI];
-      $server_path = $server[mediamosa_server_db::SERVER_PATH];
+        $server_uri = $server[mediamosa_server_db::SERVER_URI];
+        $server_path = $server[mediamosa_server_db::SERVER_PATH];
 
-      $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
+        $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
+      }
     } else {
       $streaming_server_uri = self::get_media_server($response_type, $mediafile_ext);
 
@@ -389,10 +391,214 @@ class mediamosa_asset_mediafile_play_proxy {
 
     switch ($response_type) {
       case self::RESPONSE_METAFILE:
+        if ($mediafile_ext) {
+          switch ($mediafile_ext['metadata']['container_type']) {
+            case self::CONTAINER_TYPE_MP4:
+              if ($mediafile_ext['metadata']['video_codec'] == self::VIDEO_CODEC_H264) {
 
-        switch ($mediafile_ext['metadata']['container_type']) {
-          case self::CONTAINER_TYPE_MP4:
-            if ($mediafile_ext['metadata']['video_codec'] == self::VIDEO_CODEC_H264) {
+                // Get the rtmp (wowza) server URI.
+                // URI should looks like:
+                // rtmp://wowstreaming.test.snkn.nl/vod&file=vpx-acc/{TICKET}
+                // rtmp://wowstreaming.snkn.nl/simplevideostreaming&file=vpx/{TICKET}
+                // Separate the URL into two parts:
+                // "rtmp://wowstreaming.test.snkn.nl/vod" and "vpx-acc/{TICKET}"
+
+                $exploded_uri = explode('&file=', $streaming_server_uri);
+                if (isset($exploded_uri[1])) {
+                  $uri_base = $exploded_uri[0];
+                  $uri_src = $exploded_uri[1];
+                }
+
+                else {
+                  // Apache server.
+                  // http://mediamosa2/ticket/LRQKJp4RRHdiOQjZJAiV2rOP.flv
+                  // Separation by the last '/':
+                  // "http://mediamosa2/ticket/" and "LRQKJp4RRHdiOQjZJAiV2rOP.flv"
+                  $last_index = strrpos($streaming_server_ticket_uri, '/');
+                  $uri_base = mediamosa_unicode::substr($streaming_server_ticket_uri, 0, $last_index + 1);
+                  $uri_src = mediamosa_unicode::substr($streaming_server_ticket_uri, $last_index + 1);
+                }
+
+                // TODO: fix this hack
+                // if rtmp is present in the server URL add the app id to the SMIL file
+                // so that we get streaming support
+                $add_app_id = strpos($server_uri, 'rtmp://');
+
+                // Create the output.
+                $smil = '<smil>' . "\n";
+                $smil .= '  <head>' . "\n";
+                // $output .= '    <meta base="' . $uri_base . '" />' . "\n";
+                $smil .= '    <meta base="' . $server_uri . '" />' . "\n";
+                $smil .= '  </head>' . "\n";
+                $smil .= '    <body>' . "\n";
+                $smil .= '      <switch>' . "\n";
+                $i = 0;
+                foreach($tickets as $ticket)  {
+                 $smil .= '        <video src="mp4:' . (($add_app_id === false) ? '' : ($app_id . '/')) . $ticket . '" '. 'system-bitrate="' . $mediafile_exts[$i]['metadata']['bitrate'] . '" ' . 'width="' . $mediafile_exts[$i]['metadata']['width'] . '"/>' . "\n";
+                  $i++;
+                }
+                $smil .= '      </switch>' . "\n";
+                $smil .= '   </body>' . "\n";
+                $smil .= '</smil>';
+
+                // compute location where file ought to be saved
+                $smil_ticket_id = mediamosa_db::uuid($app_id) . '.smil';
+                $ticket_path = mediamosa_configuration_storage::ticket_play_location_get($app_id);
+
+                // create directory
+                mediamosa_io::mkdir($ticket_path, TRUE);
+
+                if (!is_dir($ticket_path)) {
+                  throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_DIR_NOT_FOUND, array('@location' => $ticket_path));
+                }
+
+                // Must be able to write there.
+                if (!mediamosa_io::is_writable($ticket_path)) {
+                  throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_DIR_NOT_WRITABLE, array('@location' => $ticket_path));
+                }
+
+                // replace smil ticket location with ticket
+                $smil_filename = $ticket_path . DIRECTORY_SEPARATOR . $smil_ticket_id;
+
+                // create smil ticket
+                $fp = fopen($smil_filename, 'w');
+                if (!$fp) {
+                  throw new mediamosa_exception(0, "Unable to open'" . $smil_filename . "'.", mediamosa_exception::MEDIAMOSA_EXCEPTION_SEVERITY_HIGH);
+                }
+
+                if (fwrite($fp, $smil) == FALSE)  {
+                  throw new mediamosa_exception(0, "Unable to write to '" . $smil_filename . "'.", mediamosa_exception::MEDIAMOSA_EXCEPTION_SEVERITY_HIGH);
+                }
+
+                fclose($fp);
+
+                // TODO: add smil ticket to cron cleanup db
+
+                // update SMIL ticket URI
+                $server_path = strtr($server_path, array(self::PARAM_SMIL_TICKET => $app_id. DIRECTORY_SEPARATOR . $smil_ticket_id));
+
+                // Content type.
+                $content_type = 'application/smil';
+              }
+              else {
+                $output = '<?xml version="1.0"?>' . "\n";
+                $output .= '<?quicktime type="application/x-quicktime-media-link"?>' . "\n";
+                $output .= sprintf("<embed autoplay=\"%s\" src=\"%s\" />\n", $autostart ? 'true' : 'false', $streaming_server_ticket_uri);
+                $content_type = 'application/x-quicktimeplayer';
+              }
+
+              $video_size = self::calc_video_size(
+                isset($mediafile_ext['metadata']['width']) ? $mediafile_ext['metadata']['width'] : 0,
+                isset($mediafile_ext['metadata']['height']) ? $mediafile_ext['metadata']['height'] : 0,
+                $width,
+                $height,
+                isset($mediafile_ext['metadata']['container_type']) ? $mediafile_ext['metadata']['container_type'] : self::CONTAINER_TYPE_WMV
+              );
+
+              // Get the Object code.
+              $output = mediamosa_server::get_objectcode_streaming($mediafile_ext['metadata']['container_type'], $mediafile_ext['metadata']['video_codec'], $mediafile_ext['metadata']['mime_type'], WATCHDOG_CRITICAL, 'playproxy');
+
+              $variables = array(
+                'WIDTH' => !$video_size['width'] ? '' : $video_size['width'],
+                'HEIGHT' => !$video_size['height'] ? '' : $video_size['height'],
+                'HEIGHT_PLUS_20' => $video_size['height'] > 0 ? $video_size['height'] + 20 : '',
+                'MEDIAFILE_ID' => $mediafile_ext['mediafile_id'],
+                'TICKET_URI' => $streaming_server_ticket_uri,
+                'STILL_URI' => self::create_response_still_url($app_id, $asset_id),
+                'AUTOPLAY' => $autostart ? 'true' : 'false',
+                'AUTOPLAY_NUM' => $autostart ? '1' : '0',
+                'AUTOPLAY_TEXT' => $autostart ? 'autoplay' : '',
+                'IF_START' => '', '/IF_START' => '',
+                'IF_DURATION' => '', '/IF_DURATION' => '',
+                'IF_EXTERNAL' => '', '/IF_EXTERNAL' => '',
+                'SERVER_URI' => $server_uri,
+                'SERVER_PATH' => $server_path,
+              );
+
+
+              // HEIGHT_PLUS_num.
+              $pattern = '/{HEIGHT_PLUS_(\d+)}/';
+              $output = preg_replace_callback(
+                $pattern,
+                create_function(
+                  '$matches',
+                  'return ' . ($video_size['height'] > 0 ? $video_size['height'] . ' + $matches[1]' : '""') . ';'
+                ),
+                $output
+              );
+
+              // START, END DURATION TIMES variables
+              if (isset($start)) {
+                $variables['START_TIME'] = self::convert_msec($start, $mediafile_ext['metadata']['container_type']);
+                $variables['START_TIME_SECONDS'] = (int)($start / 1000);
+              }
+              else {
+                // Remove code {IF_START} (Exclude from output) //   \{IF_START\}(.*?)\{/IF_START\}/is
+                $output = preg_replace('@\{IF_START\}.*?\{/IF_START\}@si', '', $output);
+              }
+
+              if (isset($duration)) {
+                $endtime = $start + $duration;
+                $variables['DURATION_TIME'] = self::convert_msec($duration, $mediafile_ext['metadata']['container_type']);
+                $variables['DURATION_TIME_SECONDS'] = (int)($duration/1000);
+                $variables['START_PLUS_DURATION_TIME_SECONDS'] = (int)($start + $duration)/1000;
+                $variables['END_TIME'] = self::convert_msec($endtime, $mediafile_ext['metadata']['container_type']);
+              }
+              else {
+                $output = preg_replace('@\{IF_DURATION\}.*?\{/IF_DURATION\}@si', '', $output);
+              }
+
+              $content_type = 'text/html';
+
+              $variables['WMA_TICKET_URI'] = $streaming_server_ticket_uri;
+
+              // Remove code {IF_EXTERNAL} (Exclude from output)
+              $output = preg_replace('@\{IF_EXTERNAL\}.*?\{/IF_EXTERNAL\}@si', '', $output);
+
+              break;
+
+            case self::CONTAINER_TYPE_MP3:
+              $content_type = 'audio/mpeg';
+              $output = "<asx version=\"3.0\">\n\t<entry>\n";
+
+              if (!empty($asset_metadata['dublin_core'])) {
+                foreach (array('TITLE' => 'title', 'COPYRIGHT' => 'rights', 'ABSTRACT' => 'description', 'AUTHOR' => 'creator') as $tag => $subject) {
+                  if (!empty($asset_metadata['dublin_core'][$subject])) {
+                    $output .= "\t\t<" . $tag . '>' . implode(' ', $asset_metadata['dublin_core'][$subject]['values']) . '</' . $tag . ">\n";
+                  }
+                }
+              }
+
+              $output .= sprintf("\t\t<ref href=\"%s\" />\n", $streaming_server_ticket_uri);
+              $output .= "\t</entry>\n</asx>\n";
+              break;
+
+            case self::CONTAINER_TYPE_WMV:
+              $content_type = 'video/x-ms-asf';
+              $output = "<asx version=\"3.0\">\n\t<entry>\n";
+
+              if (!empty($asset_metadata['dublin_core'])) {
+                foreach (array('TITLE' => 'title', 'COPYRIGHT' => 'rights', 'ABSTRACT' => 'description', 'AUTHOR' => 'creator') as $tag => $subject) {
+                  if (!empty($asset_metadata['dublin_core'][$subject])) {
+                    $output .= "\t\t<" . $tag . '>' . implode(' ', $asset_metadata['dublin_core'][$subject]['values']) . '</' . $tag . ">\n";
+                  }
+                }
+              }
+
+              // Add start and duration to asx.
+              if (isset($start)) {
+                $output .= sprintf("\t\t<starttime value=\"%s\" />\n", self::convert_msec($start, self::CONTAINER_TYPE_WMV));
+              }
+
+              if (isset($duration)) {
+                $output .= sprintf("\t\t<duration value=\"%s\" />\n", self::convert_msec($duration, self::CONTAINER_TYPE_WMV));
+              }
+
+              $output .= sprintf("\t\t<ref href=\"%s\" />\n", $streaming_server_ticket_uri);
+              $output .= "\t</entry>\n</asx>\n";
+              break;
+
+            case self::CONTAINER_TYPE_FLV:
 
               // Get the rtmp (wowza) server URI.
               // URI should looks like:
@@ -400,13 +606,11 @@ class mediamosa_asset_mediafile_play_proxy {
               // rtmp://wowstreaming.snkn.nl/simplevideostreaming&file=vpx/{TICKET}
               // Separate the URL into two parts:
               // "rtmp://wowstreaming.test.snkn.nl/vod" and "vpx-acc/{TICKET}"
-
-              $exploded_uri = explode('&file=', $streaming_server_uri);
+              $exploded_uri = explode('&file=', $streaming_server_ticket_uri);
               if (isset($exploded_uri[1])) {
                 $uri_base = $exploded_uri[0];
                 $uri_src = $exploded_uri[1];
               }
-
               else {
                 // Apache server.
                 // http://mediamosa2/ticket/LRQKJp4RRHdiOQjZJAiV2rOP.flv
@@ -416,224 +620,27 @@ class mediamosa_asset_mediafile_play_proxy {
                 $uri_base = mediamosa_unicode::substr($streaming_server_ticket_uri, 0, $last_index + 1);
                 $uri_src = mediamosa_unicode::substr($streaming_server_ticket_uri, $last_index + 1);
               }
-
-              // TODO: fix this hack
-              // if rtmp is present in the server URL add the app id to the SMIL file
-              // so that we get streaming support
-              $add_app_id = strpos($server_uri, 'rtmp://');
-
               // Create the output.
-              $smil = '<smil>' . "\n";
-              $smil .= '  <head>' . "\n";
-              // $output .= '    <meta base="' . $uri_base . '" />' . "\n";
-              $smil .= '    <meta base="' . $server_uri . '" />' . "\n";
-              $smil .= '  </head>' . "\n";
-              $smil .= '    <body>' . "\n";
-              $smil .= '      <switch>' . "\n";
-              $i = 0;
-              foreach($tickets as $ticket)  {
-               $smil .= '        <video src="mp4:' . (($add_app_id === false) ? '' : ($app_id . '/')) . $ticket . '" '. 'system-bitrate="' . $mediafile_exts[$i]['metadata']['bitrate'] . '" ' . 'width="' . $mediafile_exts[$i]['metadata']['width'] . '"/>' . "\n";
-                $i++;
-              }
-              $smil .= '      </switch>' . "\n";
-              $smil .= '   </body>' . "\n";
-              $smil .= '</smil>';
-
-              // compute location where file ought to be saved
-              $smil_ticket_id = mediamosa_db::uuid($app_id) . '.smil';
-              $ticket_path = mediamosa_configuration_storage::ticket_play_location_get($app_id);
-
-              // create directory
-              mediamosa_io::mkdir($ticket_path, TRUE);
-
-              if (!is_dir($ticket_path)) {
-                throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_DIR_NOT_FOUND, array('@location' => $ticket_path));
-              }
-
-              // Must be able to write there.
-              if (!mediamosa_io::is_writable($ticket_path)) {
-                throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_DIR_NOT_WRITABLE, array('@location' => $ticket_path));
-              }
-
-              // replace smil ticket location with ticket
-              $smil_filename = $ticket_path . DIRECTORY_SEPARATOR . $smil_ticket_id;
-
-              // create smil ticket
-              $fp = fopen($smil_filename, 'w');
-              if (!$fp) {
-                throw new mediamosa_exception(0, "Unable to open'" . $smil_filename . "'.", mediamosa_exception::MEDIAMOSA_EXCEPTION_SEVERITY_HIGH);
-              }
-
-              if (fwrite($fp, $smil) == FALSE)  {
-                throw new mediamosa_exception(0, "Unable to write to '" . $smil_filename . "'.", mediamosa_exception::MEDIAMOSA_EXCEPTION_SEVERITY_HIGH);
-              }
-
-              fclose($fp);
-
-              // TODO: add smil ticket to cron cleanup db
-
-              // update SMIL ticket URI
-              $server_path = strtr($server_path, array(self::PARAM_SMIL_TICKET => $app_id. DIRECTORY_SEPARATOR . $smil_ticket_id));
-
+              $output = '<smil>' . "\n";
+              $output .= '  <head>' . "\n";
+              $output .= '    <meta base="' . $uri_base . '" />' . "\n";
+              $output .= '  </head>' . "\n";
+              $output .= '  <body>' . "\n";
+              $output .= '    <video src="' . $uri_src . '" />' . "\n";
+              $output .= '  </body>' . "\n";
+              $output .= '</smil>';
               // Content type.
               $content_type = 'application/smil';
-            }
-            else {
-              $output = '<?xml version="1.0"?>' . "\n";
-              $output .= '<?quicktime type="application/x-quicktime-media-link"?>' . "\n";
-              $output .= sprintf("<embed autoplay=\"%s\" src=\"%s\" />\n", $autostart ? 'true' : 'false', $streaming_server_ticket_uri);
-              $content_type = 'application/x-quicktimeplayer';
-            }
+              break;
 
-            $video_size = self::calc_video_size(
-              isset($mediafile_ext['metadata']['width']) ? $mediafile_ext['metadata']['width'] : 0,
-              isset($mediafile_ext['metadata']['height']) ? $mediafile_ext['metadata']['height'] : 0,
-              $width,
-              $height,
-              isset($mediafile_ext['metadata']['container_type']) ? $mediafile_ext['metadata']['container_type'] : self::CONTAINER_TYPE_WMV
-            );
+            default:
+              throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_NO_METAFILE_AVAILABLE, array('@container_type' => $mediafile_ext['metadata']['container_type']));
+          }
 
-            // Get the Object code.
-            $output = mediamosa_server::get_objectcode_streaming($mediafile_ext['metadata']['container_type'], $mediafile_ext['metadata']['video_codec'], $mediafile_ext['metadata']['mime_type'], WATCHDOG_CRITICAL, 'playproxy');
-
-            $variables = array(
-              'WIDTH' => !$video_size['width'] ? '' : $video_size['width'],
-              'HEIGHT' => !$video_size['height'] ? '' : $video_size['height'],
-              'HEIGHT_PLUS_20' => $video_size['height'] > 0 ? $video_size['height'] + 20 : '',
-              'MEDIAFILE_ID' => $mediafile_ext['mediafile_id'],
-              'TICKET_URI' => $streaming_server_ticket_uri,
-              'STILL_URI' => self::create_response_still_url($app_id, $asset_id),
-              'AUTOPLAY' => $autostart ? 'true' : 'false',
-              'AUTOPLAY_NUM' => $autostart ? '1' : '0',
-              'AUTOPLAY_TEXT' => $autostart ? 'autoplay' : '',
-              'IF_START' => '', '/IF_START' => '',
-              'IF_DURATION' => '', '/IF_DURATION' => '',
-              'IF_EXTERNAL' => '', '/IF_EXTERNAL' => '',
-              'SERVER_URI' => $server_uri,
-              'SERVER_PATH' => $server_path,
-            );
-
-
-            // HEIGHT_PLUS_num.
-            $pattern = '/{HEIGHT_PLUS_(\d+)}/';
-            $output = preg_replace_callback(
-              $pattern,
-              create_function(
-                '$matches',
-                'return ' . ($video_size['height'] > 0 ? $video_size['height'] . ' + $matches[1]' : '""') . ';'
-              ),
-              $output
-            );
-
-            // START, END DURATION TIMES variables
-            if (isset($start)) {
-              $variables['START_TIME'] = self::convert_msec($start, $mediafile_ext['metadata']['container_type']);
-              $variables['START_TIME_SECONDS'] = (int)($start / 1000);
-            }
-            else {
-              // Remove code {IF_START} (Exclude from output) //   \{IF_START\}(.*?)\{/IF_START\}/is
-              $output = preg_replace('@\{IF_START\}.*?\{/IF_START\}@si', '', $output);
-            }
-
-            if (isset($duration)) {
-              $endtime = $start + $duration;
-              $variables['DURATION_TIME'] = self::convert_msec($duration, $mediafile_ext['metadata']['container_type']);
-              $variables['DURATION_TIME_SECONDS'] = (int)($duration/1000);
-              $variables['START_PLUS_DURATION_TIME_SECONDS'] = (int)($start + $duration)/1000;
-              $variables['END_TIME'] = self::convert_msec($endtime, $mediafile_ext['metadata']['container_type']);
-            }
-            else {
-              $output = preg_replace('@\{IF_DURATION\}.*?\{/IF_DURATION\}@si', '', $output);
-            }
-
-            $content_type = 'text/html';
-
-            $variables['WMA_TICKET_URI'] = $streaming_server_ticket_uri;
-
-            // Remove code {IF_EXTERNAL} (Exclude from output)
-            $output = preg_replace('@\{IF_EXTERNAL\}.*?\{/IF_EXTERNAL\}@si', '', $output);
-
-            break;
-
-          case self::CONTAINER_TYPE_MP3:
-            $content_type = 'audio/mpeg';
-            $output = "<asx version=\"3.0\">\n\t<entry>\n";
-
-            if (!empty($asset_metadata['dublin_core'])) {
-              foreach (array('TITLE' => 'title', 'COPYRIGHT' => 'rights', 'ABSTRACT' => 'description', 'AUTHOR' => 'creator') as $tag => $subject) {
-                if (!empty($asset_metadata['dublin_core'][$subject])) {
-                  $output .= "\t\t<" . $tag . '>' . implode(' ', $asset_metadata['dublin_core'][$subject]['values']) . '</' . $tag . ">\n";
-                }
-              }
-            }
-
-            $output .= sprintf("\t\t<ref href=\"%s\" />\n", $streaming_server_ticket_uri);
-            $output .= "\t</entry>\n</asx>\n";
-            break;
-
-          case self::CONTAINER_TYPE_WMV:
-            $content_type = 'video/x-ms-asf';
-            $output = "<asx version=\"3.0\">\n\t<entry>\n";
-
-            if (!empty($asset_metadata['dublin_core'])) {
-              foreach (array('TITLE' => 'title', 'COPYRIGHT' => 'rights', 'ABSTRACT' => 'description', 'AUTHOR' => 'creator') as $tag => $subject) {
-                if (!empty($asset_metadata['dublin_core'][$subject])) {
-                  $output .= "\t\t<" . $tag . '>' . implode(' ', $asset_metadata['dublin_core'][$subject]['values']) . '</' . $tag . ">\n";
-                }
-              }
-            }
-
-            // Add start and duration to asx.
-            if (isset($start)) {
-              $output .= sprintf("\t\t<starttime value=\"%s\" />\n", self::convert_msec($start, self::CONTAINER_TYPE_WMV));
-            }
-
-            if (isset($duration)) {
-              $output .= sprintf("\t\t<duration value=\"%s\" />\n", self::convert_msec($duration, self::CONTAINER_TYPE_WMV));
-            }
-
-            $output .= sprintf("\t\t<ref href=\"%s\" />\n", $streaming_server_ticket_uri);
-            $output .= "\t</entry>\n</asx>\n";
-            break;
-
-          case self::CONTAINER_TYPE_FLV:
-
-            // Get the rtmp (wowza) server URI.
-            // URI should looks like:
-            // rtmp://wowstreaming.test.snkn.nl/vod&file=vpx-acc/{TICKET}
-            // rtmp://wowstreaming.snkn.nl/simplevideostreaming&file=vpx/{TICKET}
-            // Separate the URL into two parts:
-            // "rtmp://wowstreaming.test.snkn.nl/vod" and "vpx-acc/{TICKET}"
-            $exploded_uri = explode('&file=', $streaming_server_ticket_uri);
-            if (isset($exploded_uri[1])) {
-              $uri_base = $exploded_uri[0];
-              $uri_src = $exploded_uri[1];
-            }
-            else {
-              // Apache server.
-              // http://mediamosa2/ticket/LRQKJp4RRHdiOQjZJAiV2rOP.flv
-              // Separation by the last '/':
-              // "http://mediamosa2/ticket/" and "LRQKJp4RRHdiOQjZJAiV2rOP.flv"
-              $last_index = strrpos($streaming_server_ticket_uri, '/');
-              $uri_base = mediamosa_unicode::substr($streaming_server_ticket_uri, 0, $last_index + 1);
-              $uri_src = mediamosa_unicode::substr($streaming_server_ticket_uri, $last_index + 1);
-            }
-            // Create the output.
-            $output = '<smil>' . "\n";
-            $output .= '  <head>' . "\n";
-            $output .= '    <meta base="' . $uri_base . '" />' . "\n";
-            $output .= '  </head>' . "\n";
-            $output .= '  <body>' . "\n";
-            $output .= '    <video src="' . $uri_src . '" />' . "\n";
-            $output .= '  </body>' . "\n";
-            $output .= '</smil>';
-            // Content type.
-            $content_type = 'application/smil';
-            break;
-
-          default:
-            throw new mediamosa_exception_error(mediamosa_error::ERRORCODE_NO_METAFILE_AVAILABLE, array('@container_type' => $mediafile_ext['metadata']['container_type']));
+        } else {
+          $output = 'No transcoded files present. Transcode some files!' . "\n";
         }
+
         break;
 
       case self::RESPONSE_URI:

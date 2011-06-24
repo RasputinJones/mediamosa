@@ -188,8 +188,6 @@ class mediamosa_app_dbus {
             return 'ERROR mechanism not specified';
         }
 
-        watchdog('user', 'continuing on');
-
         // Call the chosen method.
         $result = call_user_func_array(
           array('mediamosa_app_dbus' , $_SESSION['mediamosa_dbus']['mechanism']),
@@ -199,8 +197,6 @@ class mediamosa_app_dbus {
         if (!is_bool($result)) {
           return $result;
         }
-
-        watchdog('user', 'continuing on..');
 
         if (!$result) {
           $_SESSION['mediamosa_dbus']['mechanism'] = FALSE;

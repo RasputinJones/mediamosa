@@ -323,15 +323,3 @@ function mediamosa_server_schema() {
 
   return $schema;
 }
-
-/**
- * Adds preferred EGA setting to mediamosa server. Provides different object codes depending on EGAs.
- */
-function mediamosa_server_update_1001(&$sandbox) {
-  db_add_field(mediamosa_server_db::TABLE_NAME, mediamosa_server_db::PREFERRED_EGA, array(
-    'type' => 'int',
-    'not null' => TRUE,
-    'description' => 'The preferred EGA application from which this server should connect to provide object code',
-    'default' => 0
-  ));
-}

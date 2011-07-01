@@ -414,8 +414,15 @@ function transcode(source_path, destination_path, hash, dst_ext, params, pass, t
       end
     end
 
-    local frame = string.match(line, "^frame=.-time=(.-) bitrate")
+    local frame = string.match(line, "time=.- ")
     if frame and duration then
+        local match_h, match_m, match_s = string.match(frame, "(%d+):(%d+):(.*)")
+        local h, m, s = tonumber(match_h), tonumber(match_m), tonumber(match_s)
+      if h and m and s then
+        frame = h * 3600 + m * 60 + s
+      else
+        frame = 1
+      end
       local progress = frame / duration
       if pass >= 1 then
         progress = progress / 2

@@ -394,7 +394,7 @@ class mediamosa_asset_mediafile_play_proxy {
         if ($mediafile_ext) {
           switch ($mediafile_ext['metadata']['container_type']) {
             case self::CONTAINER_TYPE_MP4:
-              if ($mediafile_ext['metadata']['video_codec'] == self::VIDEO_CODEC_H264) {
+			if (strpos($mediafile_ext['metadata']['video_codec'], self::VIDEO_CODEC_H264) !== false) {
 
                 // Get the rtmp (wowza) server URI.
                 // URI should looks like:
@@ -402,6 +402,8 @@ class mediamosa_asset_mediafile_play_proxy {
                 // rtmp://wowstreaming.snkn.nl/simplevideostreaming&file=vpx/{TICKET}
                 // Separate the URL into two parts:
                 // "rtmp://wowstreaming.test.snkn.nl/vod" and "vpx-acc/{TICKET}"
+
+				// TODO: get this entire block of code off using filestorage for the database
 
                 $exploded_uri = explode('&file=', $streaming_server_uri);
                 if (isset($exploded_uri[1])) {
